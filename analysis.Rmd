@@ -1,0 +1,100 @@
+---
+title: "House Price Prediction"
+author: "Nabil Manzo"
+date: "2026-06-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-data, message=FALSE, warning=FALSE}
+library(AmesHousing)
+library(tidyverse)
+
+ames <- ames_raw
+
+dim(ames)
+head(ames, 3)
+glimpse(ames)
+```
+```{r}
+# Clean column names
+library(janitor)
+ames <- ames_raw %>% clean_names()
+names(ames)
+```
+
+```{r}
+# Missing value assessment
+missing_summary <- ames %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "column", values_to = "missing") %>%
+  filter(missing > 0) %>%
+  mutate(pct_missing = round(missing / nrow(ames) * 100, 1)) %>%
+  arrange(desc(missing))
+
+print(missing_summary, n = 30)
+```
+```{r}
+# Data Cleaning
+ames_clean <- ames %>%
+  
+  # 1. Drop identifier columns — no predictive value
+  select(-order, -pid) %>%
+  
+  # 2. Drop rows with genuine missing data (tiny NAs)
+  drop_na(electrical, bsmt_full_bath, bsmt_half_bath, 
+          bsmt_fin_sf_1, bsmt_fin_sf_2, bsmt_unf_sf,
+          total_bsmt_sf, garage_cars, garage_area) %>%
+  
+  # 3. NAs that mean "feature doesn't exist" — replace with "None"
+  mutate(
+    alley        = replace_na(alley, "None"),
+    fence        = replace_na(fence, "None"),
+    misc_feature = replace_na(misc_feature, "None"),
+    fireplace_qu = replace_na(fireplace_qu, "None"),
+    pool_qc      = replace_na(pool_qc, "None"),
+    garage_type      = replace_na(garage_type, "None"),
+    garage_finish    = replace_na(garage_finish, "None"),
+    garage_qual      = replace_na(garage_qual, "None"),
+    garage_cond      = replace_na(garage_cond, "None"),
+    bsmt_qual        = replace_na(bsmt_qual, "None"),
+    bsmt_cond        = replace_na(bsmt_cond, "None"),
+    bsmt_exposure    = replace_na(bsmt_exposure, "None"),
+    bsmt_fin_type_1  = replace_na(bsmt_fin_type_1, "None"),
+    bsmt_fin_type_2  = replace_na(bsmt_fin_type_2, "None"),
+    mas_vnr_type     = replace_na(mas_vnr_type, "None"),
+    mas_vnr_area     = replace_na(mas_vnr_area, 0)
+  ) %>%
+  
+  # 4a. Impute lot_frontage using median by neighborhood + lot_config
+  group_by(neighborhood, lot_config) %>%
+  mutate(lot_frontage = ifelse(
+    is.na(lot_frontage),
+    median(lot_frontage, na.rm = TRUE),
+    lot_frontage
+  )) %>%
+  ungroup() %>%
+  
+  # 4b. Fallback for any remaining lot_frontage NAs
+mutate(lot_frontage = ifelse(
+    is.na(lot_frontage),
+    median(lot_frontage, na.rm = TRUE),
+    lot_frontage
+  )) %>%
+  
+  # 5. Fix garage_yr_blt — NA means no garage, replace with 0
+  mutate(garage_yr_blt = replace_na(garage_yr_blt, 0))
+
+# Verify no missing values remain
+sum(is.na(ames_clean))
+```
+
+```{r}
+dim(ames_clean)
+```
+
+
+
