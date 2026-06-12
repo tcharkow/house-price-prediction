@@ -40,9 +40,11 @@ print(missing_summary, n = 30)
 ```{r}
 # Data Cleaning
 ames_clean <- ames %>%
-  
+  bind_cols(make_ames() %>% select(Longitude, Latitude)) %>%
+  rename(longitude = Longitude, latitude = Latitude) %>%
+
   # 1. Drop identifier columns — no predictive value
-  select(-order, -pid) %>%
+  select(-order,-pid) %>%
   
   # 2. Drop rows with genuine missing data (tiny NAs)
   drop_na(electrical, bsmt_full_bath, bsmt_half_bath, 
@@ -90,10 +92,108 @@ mutate(lot_frontage = ifelse(
 
 # Verify no missing values remain
 sum(is.na(ames_clean))
+
+# 6. Remove non-typical sales and outliers per dataset author's recommendation
+ames_clean <- ames_clean %>%
+  filter(sale_condition == "Normal") %>%
+  filter(gr_liv_area <= 4000)
+
 ```
 
 ```{r}
 dim(ames_clean)
+```
+
+
+```{r}
+# Target variable — Sale Price distribution
+library(scales)
+
+summary(ames_clean$sale_price)
+```
+
+```{r}
+# Boxplot of sale price distribution
+ggplot(ames_clean, aes(x = "", y = sale_price)) +
+  geom_boxplot(fill = "#4299e1", color = "#2b6cb0", alpha = 0.7) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 18, size = 4, color = "red") +
+  scale_y_continuous(labels = dollar_format()) +
+  coord_flip() +
+  labs(
+    title = "Distribution of Sale Prices",
+    subtitle = paste0("Median: $", format(median(ames_clean$sale_price), big.mark = ","),
+                      " | Mean: $", format(round(mean(ames_clean$sale_price)), big.mark = ","),
+                      " (red diamond)"),
+    x = "",
+    y = "Sale Price"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+```{r}
+# Sale price distribution with normal curve
+ggplot(ames_clean, aes(x = sale_price)) +
+  geom_histogram(aes(y = after_stat(density)), 
+                 bins = 50, fill = "#4299e1", color = "white") +
+  stat_function(
+    fun = dnorm,
+    args = list(mean = mean(ames_clean$sale_price), 
+                sd = sd(ames_clean$sale_price)),
+    color = "red",
+    linewidth = 1
+  ) +
+  scale_x_continuous(labels = dollar_format()) +
+  labs(
+    title = "Distribution of Sale Prices",
+    subtitle = "Red curve shows what a perfect normal distribution would look like",
+    x = "Sale Price",
+    y = "Density"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Log transformed sale price
+ggplot(ames_clean, aes(x = log(sale_price))) +
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 50, fill = "#48bb78", color = "white") +
+  stat_function(
+    fun = dnorm,
+    args = list(mean = mean(log(ames_clean$sale_price)),
+                sd = sd(log(ames_clean$sale_price))),
+    color = "red",
+    linewidth = 1
+  ) +
+  labs(
+    title = "Distribution of Log(Sale Price)",
+    subtitle = "Log transformation brings the distribution closer to normal",
+    x = "Log(Sale Price)",
+    y = "Density"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Boxplot of log sale price distribution
+ggplot(ames_clean, aes(x = "", y = log(sale_price))) +
+  geom_boxplot(fill = "#48bb78", color = "#276749", alpha = 0.7) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 18, size = 4, color = "red") +
+  coord_flip() +
+  labs(
+    title = "Distribution of Log(Sale Price)",
+    subtitle = paste0("Median: ", round(median(log(ames_clean$sale_price)), 2),
+                      " | Mean: ", round(mean(log(ames_clean$sale_price)), 2),
+                      " (red diamond)"),
+    x = "",
+    y = "Log(Sale Price)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
 ```
 
 
