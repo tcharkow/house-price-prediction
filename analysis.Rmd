@@ -304,6 +304,9 @@ ames_clean <- ames_clean %>%
   left_join(neighborhood_prices %>% 
               select(neighborhood, neighborhood_tier), 
             by = "neighborhood")
+ames_clean <- ames_clean %>%
+  mutate(neighborhood_tier = factor(neighborhood_tier, 
+                                    levels = c("Budget", "Mid-Range", "Premium", "Luxury")))
 
 # Verify
 ames_clean %>% count(neighborhood_tier)
@@ -335,6 +338,105 @@ ames_clean %>%
     x = "",
     y = "Median Sale Price",
     fill = "Tier"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Living area vs sale price
+ggplot(ames_clean, aes(x = gr_liv_area, y = sale_price)) +
+  geom_point(alpha = 0.3, color = "#4299e1") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs Above Ground Living Area",
+    subtitle = "Each point represents one house sale",
+    x = "Above Ground Living Area (sq ft)",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(ames_clean, aes(x = gr_liv_area, y = sale_price, color = neighborhood_tier)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_color_manual(values = c(
+    "Budget"    = "#fc8181",
+    "Mid-Range" = "#4299e1",
+    "Premium"   = "#48bb78",
+    "Luxury"    = "#ed8936"
+  )) +
+  labs(
+    title = "Sale Price vs Living Area — Colored by Neighborhood Tier",
+    subtitle = "Location explains much of the price variation at any given size",
+    x = "Above Ground Living Area (sq ft)",
+    y = "Sale Price",
+    color = "Tier"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Overall quality vs sale price
+ames_clean %>%
+  mutate(overall_qual = factor(overall_qual)) %>%
+  ggplot(aes(x = overall_qual, y = sale_price)) +
+  geom_boxplot(fill = "#4299e1", alpha = 0.7) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price by Overall Quality Rating",
+    subtitle = "Quality rated 1 (Very Poor) to 10 (Very Excellent)",
+    x = "Overall Quality (1-10)",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Year built vs sale price
+ggplot(ames_clean, aes(x = year_built, y = sale_price)) +
+  geom_point(alpha = 0.3, color = "#4299e1") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs Year Built",
+    subtitle = "Newer houses tend to sell for more",
+    x = "Year Built",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Overall condition vs sale price
+ames_clean %>%
+  mutate(overall_cond = factor(overall_cond)) %>%
+  ggplot(aes(x = overall_cond, y = sale_price)) +
+  geom_boxplot(fill = "#48bb78", alpha = 0.7) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price by Overall Condition Rating",
+    subtitle = "Condition rated 1 (Very Poor) to 10 (Very Excellent)",
+    x = "Overall Condition (1-10)",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+```{r}
+# Full bathrooms vs sale price
+ames_clean %>%
+  mutate(full_bath = factor(full_bath)) %>%
+  ggplot(aes(x = full_bath, y = sale_price)) +
+  geom_boxplot(fill = "#ed8936", alpha = 0.7) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price by Number of Full Bathrooms",
+    subtitle = "Above grade full bathrooms only",
+    x = "Number of Full Bathrooms",
+    y = "Sale Price"
   ) +
   theme_minimal()
 ```
