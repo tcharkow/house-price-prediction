@@ -440,4 +440,173 @@ ames_clean %>%
   ) +
   theme_minimal()
 ```
+```{r}
+# Feature Engineering
+ames_clean <- ames_clean %>%
+  mutate(
+    # Log transform target variable
+    log_sale_price = log(sale_price),
+    
+    # Effective year — most recent of built or remodelled
+    effective_year = pmax(year_built, year_remod_add)
+  )
+```
+
+
+```{r}
+# Convert ordinal quality columns to numeric scores
+quality_to_num <- function(x) {
+  case_when(
+    x == "Ex" ~ 5,
+    x == "Gd" ~ 4,
+    x == "TA" ~ 3,
+    x == "Fa" ~ 2,
+    x == "Po" ~ 1,
+    x == "None" ~ 0,
+    TRUE ~ NA_real_
+  )
+}
+
+ames_clean <- ames_clean %>%
+  mutate(across(c(exter_qual, exter_cond, bsmt_qual, bsmt_cond,
+                  heating_qc, kitchen_qual, fireplace_qu,
+                  garage_qual, garage_cond, pool_qc),
+                quality_to_num))
+```
+
+```{r}
+ames_clean <- ames_clean %>%
+  mutate(
+    bsmt_exposure = case_when(
+      bsmt_exposure == "Gd"   ~ 4,
+      bsmt_exposure == "Av"   ~ 3,
+      bsmt_exposure == "Mn"   ~ 2,
+      bsmt_exposure == "No"   ~ 1,
+      bsmt_exposure == "None" ~ 0
+    ),
+    bsmt_fin_type_1 = case_when(
+      bsmt_fin_type_1 == "GLQ"  ~ 6,
+      bsmt_fin_type_1 == "ALQ"  ~ 5,
+      bsmt_fin_type_1 == "BLQ"  ~ 4,
+      bsmt_fin_type_1 == "Rec"  ~ 3,
+      bsmt_fin_type_1 == "LwQ"  ~ 2,
+      bsmt_fin_type_1 == "Unf"  ~ 1,
+      bsmt_fin_type_1 == "None" ~ 0
+    ),
+    bsmt_fin_type_2 = case_when(
+      bsmt_fin_type_2 == "GLQ"  ~ 6,
+      bsmt_fin_type_2 == "ALQ"  ~ 5,
+      bsmt_fin_type_2 == "BLQ"  ~ 4,
+      bsmt_fin_type_2 == "Rec"  ~ 3,
+      bsmt_fin_type_2 == "LwQ"  ~ 2,
+      bsmt_fin_type_2 == "Unf"  ~ 1,
+      bsmt_fin_type_2 == "None" ~ 0
+    ),
+    functional = case_when(
+      functional == "Typ"  ~ 7,
+      functional == "Min1" ~ 6,
+      functional == "Min2" ~ 5,
+      functional == "Mod"  ~ 4,
+      functional == "Maj1" ~ 3,
+      functional == "Maj2" ~ 2,
+      functional == "Sev"  ~ 1,
+      functional == "Sal"  ~ 0
+    ),
+    garage_finish = case_when(
+      garage_finish == "Fin"  ~ 3,
+      garage_finish == "RFn"  ~ 2,
+      garage_finish == "Unf"  ~ 1,
+      garage_finish == "None" ~ 0
+    ),
+    fence = case_when(
+      fence == "GdPrv" ~ 4,
+      fence == "MnPrv" ~ 3,
+      fence == "GdWo"  ~ 2,
+      fence == "MnWw"  ~ 1,
+      fence == "None"  ~ 0
+    ),
+    paved_drive = case_when(
+      paved_drive == "Y" ~ 2,
+      paved_drive == "P" ~ 1,
+      paved_drive == "N" ~ 0
+    )
+  )
+```
+
+```{r}
+ames_clean %>%
+  select(where(is.character)) %>%
+  names()
+```
+
+```{r}
+ames_clean %>% count(sale_condition)
+ames_clean %>% count(heating)
+ames_clean %>% count(electrical)
+ames_clean %>% count(roof_matl)
+```
+```{r}
+ames_clean <- ames_clean %>%
+  # Drop near-zero variance columns
+  select(-sale_condition, -roof_matl, -heating) %>%
+  # Simplify electrical to binary
+  mutate(electrical = ifelse(electrical == "SBrkr", 1, 0))
+```
+
+```{r}
+ames_clean %>% 
+  select(where(is.character)) %>%
+  summarise(across(everything(), n_distinct)) %>%
+  pivot_longer(everything(), names_to = "column", values_to = "n_categories") %>%
+  arrange(desc(n_categories))
+```
+
+```{r}
+# Convert remaining character columns to numeric/dummy variables
+ames_clean <- ames_clean %>%
+  
+  # Drop columns — redundant or near-zero variance
+  select(-neighborhood, -ms_sub_class, -exterior_2nd, 
+         -condition_2, -sale_type, -misc_feature, -utilities) %>%
+  
+  # Convert binary columns
+  mutate(
+    street      = ifelse(street == "Pave", 1, 0),
+    central_air = ifelse(central_air == "Y", 1, 0),
+    alley       = ifelse(alley == "None", 0, 1),
+    land_slope  = ifelse(land_slope == "Gtl", 1, 0)
+  ) %>%
+  
+  # Simplify exterior_1st to common vs uncommon
+  mutate(
+    exterior_1st = ifelse(exterior_1st %in% 
+                          c("VinylSd", "HdBoard", "MetalSd", 
+                            "Wd Sdng", "Plywood"), 
+                          exterior_1st, "Other")
+  ) %>%
+  
+  # Convert remaining nominals to dummy variables
+  mutate(across(c(ms_zoning, bldg_type, house_style, foundation,
+                  garage_type, mas_vnr_type, lot_config, 
+                  land_contour, lot_shape, roof_style,
+                  condition_1, exterior_1st),
+                as.factor))
+```
+
+```{r}
+# Final feature engineering summary
+glimpse(ames_clean)
+```
+```{r}
+# Check low variance columns
+ames_clean %>% count(garage_qual)
+ames_clean %>% count(garage_cond)
+ames_clean %>% count(pool_qc)
+
+```
+```{r}
+# Drop near-zero variance columns after quality conversion
+ames_clean <- ames_clean %>%
+  select(-garage_qual, -garage_cond, -pool_qc, -pool_area)
+```
 
