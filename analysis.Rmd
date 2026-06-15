@@ -12,6 +12,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r load-data, message=FALSE, warning=FALSE}
 library(AmesHousing)
 library(tidyverse)
+library(glmnet)
+library(janitor)
+library(scales)
+library(caret)
 
 ames <- ames_raw
 
@@ -21,7 +25,6 @@ glimpse(ames)
 ```
 ```{r}
 # Clean column names
-library(janitor)
 ames <- ames_raw %>% clean_names()
 names(ames)
 ```
@@ -107,7 +110,6 @@ dim(ames_clean)
 
 ```{r}
 # Target variable — Sale Price distribution
-library(scales)
 
 summary(ames_clean$sale_price)
 ```
@@ -608,5 +610,189 @@ ames_clean %>% count(pool_qc)
 # Drop near-zero variance columns after quality conversion
 ames_clean <- ames_clean %>%
   select(-garage_qual, -garage_cond, -pool_qc, -pool_area)
+```
+
+```{r}
+# Correlation analysis — numeric variables vs log_sale_price
+# 
+# Steps:
+# 1. Keep only numeric columns (factors and characters can't be correlated this way)
+# 2. Remove log_sale_price and sale_price from the predictors
+# 3. Compute correlation of every column against log_sale_price
+# 4. Sort and visualize
+
+library(corrplot)
+
+# Step 1 & 2 — isolate numeric predictors
+numeric_vars <- ames_clean %>%
+  select(where(is.numeric)) %>%
+  select(-sale_price)  # keep log_sale_price in, remove raw price
+
+# Step 3 — correlate everything against log_sale_price
+correlations <- cor(numeric_vars, use = "complete.obs") %>%
+  as.data.frame() %>%
+  select(log_sale_price) %>%
+  rownames_to_column("variable") %>%
+  filter(variable != "log_sale_price") %>%
+  arrange(desc(abs(log_sale_price))) %>%
+  rename(correlation = log_sale_price)
+
+print(correlations)
+```
+```{r}
+# Correlation bar chart — numeric predictors vs log_sale_price
+# We use a diverging color scale: blue = positive, red = negative
+# Ordered by absolute correlation so strongest predictors are at the top
+
+correlations %>%
+  mutate(
+    direction = ifelse(correlation >= 0, "positive", "negative"),
+    variable  = fct_reorder(variable, abs(correlation))
+  ) %>%
+  ggplot(aes(x = variable, y = correlation, fill = direction)) +
+  geom_col() +
+  geom_text(aes(label = round(correlation, 2),
+                hjust = ifelse(correlation >= 0, -0.1, 1.1)),
+            size = 3) +
+  scale_fill_manual(values = c("positive" = "#4299e1", "negative" = "#fc8181")) +
+  scale_y_continuous(limits = c(-0.4, 0.95)) +
+  coord_flip() +
+  labs(
+    title    = "Correlation with Log Sale Price",
+    subtitle = "Ordered by strength — blue = positive, red = negative",
+    x        = "",
+    y        = "Pearson Correlation (r)",
+    fill     = "Direction"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(-0.4, 1.05)) +  # extend right limit +
+  geom_text(aes(label = round(correlation, 2),
+              hjust = ifelse(correlation >= 0, 1.1, -0.1)),  # flipped from before
+          size = 3, color = "white")
+```
+```{r}
+# Simple linear regression — overall_qual vs log_sale_price
+model_simple <- lm(log_sale_price ~ overall_qual, data = ames_clean)
+summary(model_simple)
+```
+```{r}
+# Diagnostic plots — validating the 4 OLS assumptions
+par(mfrow = c(2, 2))  # arrange 4 plots in a 2x2 grid
+plot(model_simple)
+```
+```{r}
+# Multiple linear regression — all predictors vs log_sale_price
+# We exclude sale_price (raw target) to avoid data leakage
+model_multiple <- lm(log_sale_price ~ . - sale_price, data = ames_clean)
+summary(model_multiple)
+```
+```{r}
+# Refined multiple regression — dropping redundant, singular, and non-significant variables
+ames_model <- ames_clean %>%
+  select(
+    -total_bsmt_sf,    # exact sum of bsmt components — singularity
+    -gr_liv_area,      # exact sum of floor sf components — singularity
+    -year_remod_add,   # redundant with year_built
+    -year_built,       # redundant with effective_year
+    -exter_cond,       # near-zero coefficient, p = 0.99
+    -electrical,       # near-zero coefficient, p = 0.90
+    -bsmt_half_bath,   # near-zero coefficient, p = 0.96
+    -fence,            # near-zero coefficient, p = 0.95
+    -misc_val,         # near-zero coefficient, p = 0.98
+    -mo_sold,          # near-zero coefficient, p = 0.69
+    -garage_yr_blt,    # near-zero coefficient, p = 0.32
+    -alley,            # near-zero coefficient, p = 0.25
+    -mas_vnr_area,     # near-zero coefficient, p = 0.12
+    -yr_sold,          # near-zero coefficient, p = 0.09
+    -x3ssn_porch       # near-zero coefficient, p = 0.38
+  )
+
+model_refined <- lm(log_sale_price ~ . - sale_price, data = ames_model)
+summary(model_refined)
+```
+
+```{r}
+library(glmnet)
+
+# Prepare matrix input — model.matrix handles factors → dummies automatically
+# -1 removes the intercept column (glmnet adds its own)
+X <- model.matrix(log_sale_price ~ . - sale_price, data = ames_model)[, -1]
+y <- ames_model$log_sale_price
+
+# Ridge regression — alpha = 0
+# cv.glmnet finds the optimal lambda (penalty strength) via cross-validation
+set.seed(42)
+model_ridge <- cv.glmnet(X, y, alpha = 0)
+
+# Lasso regression — alpha = 1
+set.seed(42)
+model_lasso <- cv.glmnet(X, y, alpha = 1)
+
+# Best lambda for each
+cat("Best Ridge lambda:", model_ridge$lambda.min, "\n")
+cat("Best Lasso lambda:", model_lasso$lambda.min, "\n")
+```
+
+```{r}
+# Compare all 4 models using cross-validated RMSE
+# For Ridge and Lasso, cv.glmnet already did cross-validation
+ridge_rmse <- sqrt(min(model_ridge$cvm))
+lasso_rmse <- sqrt(min(model_lasso$cvm))
+
+# For lm models we need to do it manually using 10-fold cross-validation
+
+set.seed(42)
+cv_control <- trainControl(method = "cv", number = 10)
+
+model_simple_cv <- train(log_sale_price ~ overall_qual,
+                         data = ames_model,
+                         method = "lm",
+                         trControl = cv_control)
+
+model_refined_cv <- train(log_sale_price ~ . - sale_price,
+                          data = ames_model,
+                          method = "lm",
+                          trControl = cv_control)
+
+cat("Simple regression RMSE:  ", model_simple_cv$results$RMSE, "\n")
+cat("Multiple regression RMSE:", model_refined_cv$results$RMSE, "\n")
+cat("Ridge RMSE:              ", ridge_rmse, "\n")
+cat("Lasso RMSE:              ", lasso_rmse, "\n")
+```
+```{r}
+# How many coefficients did Lasso set to exactly zero?
+lasso_coefs <- coef(model_lasso, s = "lambda.min")
+zeroed_out <- sum(lasso_coefs == 0)
+cat("Variables zeroed out by Lasso:", zeroed_out, "\n")
+cat("Variables kept:", nrow(lasso_coefs) - zeroed_out, "\n")
+```
+
+```{r}
+# Lasso diagnostic plots
+lasso_predictions <- predict(model_lasso, s = "lambda.min", newx = X)
+lasso_residuals   <- y - lasso_predictions
+
+par(mfrow = c(2, 2))
+
+# 1. Residuals vs Fitted
+plot(lasso_predictions, lasso_residuals,
+     main = "Residuals vs Fitted",
+     xlab = "Fitted values", ylab = "Residuals")
+abline(h = 0, col = "red", lty = 2)
+
+# 2. Q-Q plot
+qqnorm(lasso_residuals, main = "Q-Q Residuals")
+qqline(lasso_residuals, col = "red")
+
+# 3. Scale-Location
+plot(lasso_predictions, sqrt(abs(lasso_residuals)),
+     main = "Scale-Location",
+     xlab = "Fitted values", ylab = "√|Residuals|")
+
+# 4. Residuals histogram
+hist(lasso_residuals, breaks = 50, col = "#4299e1",
+     main = "Distribution of Residuals",
+     xlab = "Residuals")˜
 ```
 
