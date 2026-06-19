@@ -795,4 +795,7 @@ hist(lasso_residuals, breaks = 50, col = "#4299e1",
      main = "Distribution of Residuals",
      xlab = "Residuals")˜
 ```
+```{r}
+write.csv(ames_model, "~/projects/house-price-api/ames_model.csv", row.names = FALSE)
+```
 
